@@ -18,12 +18,18 @@
  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  SOFTWARE.
+
+ Additional changes to add per-value byte-spans made by <lhearachel@proton.me>
+ Copyright (c) 2025
  *============================================================================*/
 
 /**
  @file yyjson.h
  @date 2019-03-09
  @author YaoYuan
+
+ Additional modifications made by github.com/lhearachel to support the location
+ of value-spans.
  */
 
 #ifndef YYJSON_H
@@ -1094,17 +1100,19 @@ yyjson_api_inline size_t yyjson_read_max_memory_usage(size_t len,
         for example: "[1,2,3,4]" size is 9, value count is 5.
      2. Some broken JSON may cost more memory during reading, but fail at end,
         for example: "[[[[[[[[".
-     3. yyjson use 16 bytes per value, see struct yyjson_val.
+     3. yyjson use 32 bytes per value, see struct yyjson_val.
      4. yyjson use dynamic memory with a growth factor of 1.5.
 
-     The max memory size is (json_size / 2 * 16 * 1.5 + padding).
+     The max memory size is (json_size / 2 * 32 * 1.5 + padding).
      */
-    size_t mul = (size_t)12 + !(flg & YYJSON_READ_INSITU);
+#define memsize (size_t)(32 * 3 / 4)
+    size_t mul = memsize + !(flg & YYJSON_READ_INSITU);
     size_t pad = 256;
     size_t max = (size_t)(~(size_t)0);
     if (flg & YYJSON_READ_STOP_WHEN_DONE) len = len < 256 ? 256 : len;
     if (len >= (max - pad - mul) / mul) return 0;
     return len * mul + pad;
+#undef memsize
 }
 
 /**
@@ -4760,11 +4768,13 @@ typedef union yyjson_val_uni {
 } yyjson_val_uni;
 
 /**
- Immutable JSON value, 16 bytes.
+ Immutable JSON value, 32 bytes.
  */
 struct yyjson_val {
     uint64_t tag; /**< type, subtype and length */
     yyjson_val_uni uni; /**< payload */
+    size_t beg; /**< beginning of value-span */
+    size_t end; /**< ending of value-span */
 };
 
 struct yyjson_doc {
@@ -5231,6 +5241,14 @@ yyjson_api_inline const char *yyjson_get_type_desc(yyjson_val *val) {
         case YYJSON_TYPE_NUM  | YYJSON_SUBTYPE_REAL:  return "real";
         default:                                      return "unknown";
     }
+}
+
+yyjson_api_inline size_t yyjson_dist_beg(yyjson_val *val) {
+    return val == NULL ? 0 : val->beg;
+}
+
+yyjson_api_inline size_t yyjson_dist_end(yyjson_val *val) {
+    return val == NULL ? 0 : val->end;
 }
 
 yyjson_api_inline const char *yyjson_get_raw(yyjson_val *val) {
